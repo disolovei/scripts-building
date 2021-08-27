@@ -1,0 +1,73 @@
+@import "node_modules/normalize-scss/sass/normalize";
+@import "settings/settings";
+
+* {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    color: tomato;
+}
+
+a {
+    text-decoration: none;
+
+    @include media-max("tablet") {
+        color: red;
+    }
+
+    @include media-max(992) {
+        color: blue;
+    }
+
+    @include media-min("tablet") {
+        text-decoration: underline;
+    }
+
+    @include media-min(1440) {
+        font-size: 2em;
+    }
+
+    @include media-between("tablet", 992) {
+        letter-spacing: 1px;
+    }
+
+    @include media-between("tablet", "desktop") {
+        line-height: 3em;
+    }
+
+    @include media-between(768, 992) {
+        text-align: left;
+    }
+}
+
+p {
+    @include media-max("tablet") {
+        color: red;
+    }
+
+    @include media-max(992) {
+        color: blue;
+    }
+
+    @include media-min("tablet") {
+        text-decoration: underline;
+    }
+
+    @include media-min(1440) {
+        font-size: 2em;
+    }
+
+    @include media-between("tablet", 992) {
+        letter-spacing: 1px;
+    }
+
+    @include media-between("tablet", "desktop") {
+        line-height: 3em;
+    }
+
+    @include media-between(768, 992) {
+        text-align: left;
+    }
+}
