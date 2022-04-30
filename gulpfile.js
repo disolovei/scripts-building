@@ -2,14 +2,17 @@ const { normalize, join } = require('path');
 const { parallel, series, watch, dest, src } = require('gulp');
 const sass = require('gulp-sass')(require('sass'));
 const sourcemaps = require('gulp-sourcemaps');
+const executeIfProd	= require('gulp-if');
+const clean = require('gulp-clean');
 
 const normalizePath = relativePath => normalize(join(__dirname, relativePath));
+const getENVOption	= (name, defaultValue = '') => !!process.env[name] ? process.env[name] : defaultValue;
 
 require('dotenv').config();
 
 const customArgs = {
 	_: [],
-	get(key) {
+	get(key, defaultValue = null) {
 		if (this.hasOwnProperty(key)) {
 			return this[key];
 		}
@@ -18,7 +21,7 @@ const customArgs = {
 			return this['_'][key];
 		}
 
-		return null;
+		return defaultValue;
 	},
 	has(key) {
 		return this.hasOwnProperty(key) || this['_'].includes(key);
@@ -49,13 +52,19 @@ const customArgs = {
 
 customArgs._parseArgs();
 
-const SASS_PATH	= normalizePath(!!process.env.SASS_PATH ? process.env.SASS_PATH : 'sass');
-const CSS_PATH	= normalizePath(!!process.env.CSS_PATH ? process.env.CSS_PATH : 'css');
-const JS_PATH	= normalizePath(!!process.env.JS_PATH ? process.env.JS_PATH : 'js');
+const IS_IN_PRODUCTION = customArgs.has('prod') || ( !!process.env.ENVIRONMENT && 'production' === process.env.ENVIRONMENT );
 
-const GENERAL_SASS_PATTERN	= [`${SASS_PATH}/*.scss`, `${SASS_PATH}/*.sass`];
-const GENERAL_CSS_PATTERN	= [`${CSS_PATH}/*.css`, `!${CSS_PATH}/*.min.css`, `!${CSS_PATH}/modules/**/*.min.css`];
-const GENERAL_JS_PATTERN	= [`${JS_PATH}/*.js`, `!${JS_PATH}/*.min.js`, `!${JS_PATH}/modules/**/*.min.js`];
+const SASS_SRC_PATH	= normalizePath(getENVOption('SASS_SRC_PATH', 'sass'));
+const CSS_DEST_PATH	= normalizePath(getENVOption('CSS_DEST_PATH', 'css'));
+const JS_DEST_PATH	= normalizePath(getENVOption('JS_DEST_PATH', 'js'));
+
+const JS_SRC_PATH = getENVOption('JS_SRC_PATH', JS_DEST_PATH);
+
+const MAKE_DOT_MIN_FILES = !!getENVOption('MAKE_DOT_MIN_FILES', '');
+
+const GENERAL_SASS_PATTERN	= [`${SASS_SRC_PATH}/*.scss`, `${SASS_SRC_PATH}/*.sass`];
+const GENERAL_CSS_PATTERN	= [`${CSS_DEST_PATH}/*.css`, `!${CSS_DEST_PATH}/*.min.css`, `!${CSS_DEST_PATH}/modules/**/*.min.css`];
+const GENERAL_JS_PATTERN	= [`${JS_SRC_PATH}/*.js`, `!${JS_SRC_PATH}/*.min.js`, `!${JS_SRC_PATH}/modules/**/*.min.js`];
 
 const SASS_FILES_PATTERN	= customArgs.has('sass-files') ? customArgs.get('sass-files').map(file => normalizePath(file)) : GENERAL_SASS_PATTERN;
 const CSS_FILES_PATTERN		= customArgs.has('css-files') ? customArgs.get('css-files').map(file => normalizePath(file)) : GENERAL_CSS_PATTERN;
@@ -64,14 +73,14 @@ const JS_FILES_PATTERN		= customArgs.has('js-files') ? customArgs.get('js-files'
 function buildSASS() {
 	return src(SASS_FILES_PATTERN)
 		.pipe(sass.sync().on('error', sass.logError))
-		.pipe(dest(CSS_PATH));
+		.pipe(dest(CSS_DEST_PATH));
 }
 
 function buildCSS() {
 	return src(CSS_FILES_PATTERN)
-		.pipe(sourcemaps.init())
-		.pipe(require('gulp-group-css-media-queries')())
-		.pipe(require('gulp-clean-css')({
+		.pipe(executeIfProd(!IS_IN_PRODUCTION, sourcemaps.init()))
+		.pipe(executeIfProd(IS_IN_PRODUCTION, require('gulp-group-css-media-queries')()))
+		.pipe(executeIfProd(IS_IN_PRODUCTION, require('gulp-clean-css')({
 			compatibility: 'ie8',
 			level: {
 				1: {
@@ -81,11 +90,11 @@ function buildCSS() {
 					removeDuplicateRules: true
 				}
 			}
-		}))
-		.pipe(require('gulp-autoprefixer')('last 2 version', 'safari 5', 'ie 8', 'ie 9'))
-		.pipe(require('gulp-rename')(path => { path.basename += '.min' }))
-		.pipe(sourcemaps.write('./'))
-		.pipe(dest(CSS_PATH))
+		})))
+		.pipe(executeIfProd(IS_IN_PRODUCTION, require('gulp-autoprefixer')('last 2 version', 'safari 5', 'ie 8', 'ie 9')))
+		.pipe(executeIfProd(IS_IN_PRODUCTION && MAKE_DOT_MIN_FILES, require('gulp-rename')(path => { path.basename += '.min'; })))
+		.pipe(executeIfProd(!IS_IN_PRODUCTION, sourcemaps.write('./')))
+		.pipe(dest(CSS_DEST_PATH))
 }
 
 function buildJS() {
@@ -93,8 +102,8 @@ function buildJS() {
 		src(JS_FILES_PATTERN),
 		src(join(__dirname, 'node_modules', '@babel', 'polyfill', 'browser.js'))
 	)
-		.pipe(sourcemaps.init())
-		.pipe(require('gulp-babel')({
+		.pipe(executeIfProd(!IS_IN_PRODUCTION, sourcemaps.init()))
+		.pipe(executeIfProd(IS_IN_PRODUCTION, require('gulp-babel')({
 			presets: [
 				[
 					'@babel/preset-env',
@@ -102,11 +111,27 @@ function buildJS() {
 				]
 			],
 			plugins: ['@babel/transform-runtime']
-		}))
-		.pipe(require('gulp-uglify')())
-		.pipe(require('gulp-rename')(path => { path.basename += '.min'; }))
-		.pipe(sourcemaps.write('./'))
-		.pipe(dest(JS_PATH));
+		})))
+		.pipe(executeIfProd(IS_IN_PRODUCTION, require('gulp-uglify')()))
+		.pipe(executeIfProd(IS_IN_PRODUCTION && MAKE_DOT_MIN_FILES, require('gulp-rename')(path => { path.basename += '.min'; })))
+		.pipe(executeIfProd(!IS_IN_PRODUCTION, sourcemaps.write('./')))
+		.pipe(dest(JS_DEST_PATH));
+}
+
+function cleanCSS() {
+	return src(CSS_DEST_PATH, {
+		read: false,
+		allowEmpty: true
+	})
+		.pipe(clean({ force: true }));
+}
+
+function cleanJS() {
+	return src(JS_DEST_PATH, {
+		read: false,
+		allowEmpty: true
+	})
+		.pipe(clean({ force: true }));
 }
 
 function dev() {
@@ -117,9 +142,10 @@ function dev() {
 	}
 }
 
-exports.buildSASS = buildSASS;
+exports.buildSASS = series(cleanCSS, buildSASS);
 // exports.buildCSS = series(buildSASS, buildCSS);
 exports.buildCSS = buildCSS;
-exports.buildJS = buildJS;
+exports.buildJS = series(cleanJS, buildJS);
 exports.dev = dev;
-exports.build = parallel(series(buildSASS, buildCSS), buildJS);
+exports.clean = dev;
+exports.build = parallel(series(cleanCSS, buildSASS, buildCSS), series(cleanJS, buildJS));
